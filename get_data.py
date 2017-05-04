@@ -15,6 +15,7 @@ It then makes multiple API calls to change.org to perform the following tasks fo
 
 Once all the above data has been collected for a given petition, add a new row to a postgresSQL database.
 """
+# TODO: Need a method to export petition data to single row of a csv.
 
 # Import for parsing cmd line arguments
 import argparse
@@ -111,9 +112,8 @@ class GetData(object):
                                                                            data,
                                                                            self.api_key)
 
-        # Continue filling reasons_arr until next_page_endpoint is None
+        # Continue filling arr until next_page_endpoint is None
         while data_url:
-            print data_url
             # Make api call
             response = self.get_response(data_url)
 
@@ -133,14 +133,48 @@ class GetData(object):
 
         return data_json
 
+    def petitions(self, petition_id):
+        # Specify fields to collect from petition data
+        fields = ",".join(["title",
+                           "status",
+                           "targets",
+                           "overview",
+                           "letter_body",
+                           "signature_count",
+                           "category",
+                           "goal",
+                           "created_at",
+                           "end_at",
+                           "creator_name",
+                           "creator_url",
+                           "organization_name",
+                           "organization_url"])
+
+        # Define initial url for api call for petition data
+        data_url = ("https://api.change.org/v1/petitions/{0}"
+                    "?fields={1}&api_key={2}").format(petition_id,
+                                                      fields,
+                                                      self.api_key)
+
+        # Make api call
+        response = self.get_response(data_url)
+
+        # Extract reasons from json response and reset data_url
+        if (type(response) == str) and (response.startswith("Error")):
+            print response
+            exit(2)
+        else:
+            data_json = json.loads(response.text)
+
+            return data_json
+
+
 if __name__ == "__main__":
     get_data = GetData()
     url = get_data.url_list[0]
     p_id = get_data.get_petition_id(url)
 
-    result = get_data.reasons_updates(p_id, data="reasons")
+    # result = get_data.reasons_updates(p_id, data="reasons")
+    result = get_data.petitions(p_id)
 
-    json_data = json.loads(result)
-    for d in json_data[0:100]:
-        print d
-    print len(json_data)
+    print result["title"]
