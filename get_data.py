@@ -1,7 +1,9 @@
 """
-This file takes two cmd line arguments:
+This file takes two cmd line arguments at runtime:
     1) Path to list of change.org petition urls
     2) API key
+in the following format:
+    python get_data.py --list_path=
 
 It then makes multiple API calls to change.org to perform the following tasks for each petition url:
     1) Obtain a unique petition id. This will used for all further API calls to collect petition data.
@@ -15,7 +17,6 @@ It then makes multiple API calls to change.org to perform the following tasks fo
 
 Once all the above data has been collected for a given petition, add a new row to a postgresSQL database.
 """
-# TODO: Need a method to export petition data to single row of a csv.
 
 # Import for parsing cmd line arguments
 import argparse
@@ -27,27 +28,29 @@ import json
 
 # Miscellaneous imports
 from sys import exit
+import pandas as pd
 
 
 class GetData(object):
+    """Docstring for GetData class."""
     def __init__(self):
         # Read path to url list and api key from cmd line args
-        list_path, self.api_key = self.get_cmdline_args()
+        self.url_list_path, self.api_key = self.get_cmdline_args()
 
         # Read url list from path
-        with open(list_path, "r+") as f:
+        with open(self.url_list_path, "r+") as f:
             self.url_list = f.readlines()
 
     @staticmethod
     def get_cmdline_args():
-        # Initialize argparse object and define desired cmd line arguments
+        # Initialize arg parse object and define desired cmd line arguments
         parser = argparse.ArgumentParser()
-        parser.add_argument("--list_path", help="Path to list of change.org petition urls", type=str)
+        parser.add_argument("--url_list_path", help="Path to list of change.org petition urls", type=str)
         parser.add_argument("--api_key", help="API key to make calls with", type=str)
 
         # Get path to list of petition urls and API key
         args = parser.parse_args()
-        path, api = args.list_path, args.api_key
+        path, api = args.url_list_path, args.api_key
 
         # Check that all arguments are non-null
         if path and api:
@@ -56,6 +59,11 @@ class GetData(object):
             print "Missing some arguments. Please review usage..."
             print parser.print_help()
             exit()
+
+    def output_filename(self):
+        file_path = "/".join(self.url_list_path.split("/")[:-1])
+        file_name = self.url_list_path.split("/")[-1].split("-")[1].split(".")[0] + "_data.csv"
+        return "/".join([file_path, file_name])
 
     @staticmethod
     def get_response(input_url):
@@ -97,7 +105,7 @@ class GetData(object):
             return petition_id
 
     def reasons_updates(self, petition_id, data="reasons"):
-        # Check to make sure data is valid
+        # Check to make sure data flag is valid
         if data not in ["reasons", "updates"]:
             print ("Please choose valid data flag for reasons_updates method.\n"
                    "Valid choices: reasons/updates")
@@ -169,12 +177,37 @@ class GetData(object):
             return data_json
 
 
-if __name__ == "__main__":
+def main():
+    # Initialize GetData object
     get_data = GetData()
-    url = get_data.url_list[0]
-    p_id = get_data.get_petition_id(url)
 
-    # result = get_data.reasons_updates(p_id, data="reasons")
-    result = get_data.petitions(p_id)
+    df = pd.DataFrame(columns=("id", "reasons", "updates", "data"))
 
-    print result["title"]
+    # Loop over urls
+    for cnt, url in enumerate(get_data.url_list):
+        # Get petition id
+        print "Getting id..."
+        _id = get_data.get_petition_id(url)
+
+        # Get reasons for signing petition
+        print "Getting reasons..."
+        reasons = get_data.reasons_updates(_id, data="reasons")
+
+        # Get updates for petition
+        print "Getting updates..."
+        updates = get_data.reasons_updates(_id, data="updates")
+
+        # Get petition data
+        print "Getting data..."
+        data = get_data.petitions(_id)
+
+        df.loc[cnt] = [str(_id), reasons, updates, data]
+
+        if (cnt+1) % 50 == 0:
+            df.to_csv(get_data.output_filename(), index=False)
+
+    df.to_csv(get_data.output_filename(), index=False)
+
+
+if __name__ == "__main__":
+    main()

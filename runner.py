@@ -35,7 +35,7 @@ class Runner(object):
 
     @staticmethod
     def get_files(data_path):
-        # If data folder exists, list files in it and extract filenames for all .dat files
+        # If data folder exists, list files in it and extract file names for all .dat files
         if isdir(data_path):
             file_list = []
             files = listdir(data_path)
@@ -55,9 +55,10 @@ class Runner(object):
                 remove(script_path)
 
             # Create submission script
-            run_cmd = "python {0}/get_data.py --list_path={1} --api_key={2}\n".format(getcwd(),
-                                                                                      join(self.data_path, file_name),
-                                                                                      api_key)
+            run_cmd = ("python {0}/get_data.py --url_list_path={1}"
+                       " --api_key={2}\n").format(getcwd(),
+                                                  join(self.data_path, file_name),
+                                                  api_key)
             with open(script_path, "w") as f:
                 f.write("#/bin/sh\n")
                 f.write("#PBS -N Scan-{}\n".format(run_name))
@@ -66,6 +67,7 @@ class Runner(object):
             # Run submission script
             system("chmod +x script.sh")
             system("./script.sh")
+
 
 if __name__ == "__main__":
     runner = Runner()
