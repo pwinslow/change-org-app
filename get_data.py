@@ -3,7 +3,7 @@ This file takes two cmd line arguments at runtime:
     1) Path to list of change.org petition urls
     2) API key
 in the following format:
-    python get_data.py --list_path=
+    python get_data.py --url_list_path=path/to/list/of/urls --api_key=api/key
 
 It then makes multiple API calls to change.org to perform the following tasks for each petition url:
     1) Obtain a unique petition id. This will used for all further API calls to collect petition data.
