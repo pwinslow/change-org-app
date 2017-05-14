@@ -188,6 +188,7 @@ def main():
         # Get petition id
         print "Getting id..."
         _id = get_data.get_petition_id(url)
+        print _id
 
         # Get reasons for signing petition
         print "Getting reasons..."
