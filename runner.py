@@ -66,7 +66,7 @@ class Runner(object):
 
             # Run submission script
             system("chmod +x script.sh")
-            system("./script.sh")
+            system("qsub -e berr.log -o bout.log script.sh")
 
 
 if __name__ == "__main__":

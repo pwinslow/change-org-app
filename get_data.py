@@ -31,8 +31,17 @@ from sys import exit
 import pandas as pd
 
 
+def is_json(data):
+    """Method: Checks for whether passed data parameter is a json object."""
+    try:
+        json.loads(data)
+    except ValueError:
+        return False
+    return True
+
+
 class GetData(object):
-    """Docstring for GetData class."""
+    """Class for gathering petition data from the Change.org API."""
     def __init__(self):
         # Read path to url list and api key from cmd line args
         self.url_list_path, self.api_key = self.get_cmdline_args()
@@ -61,31 +70,25 @@ class GetData(object):
             exit()
 
     def output_filename(self):
+        # Extract the appropriate file name from the path
         file_path = "/".join(self.url_list_path.split("/")[:-1])
         file_name = self.url_list_path.split("/")[-1].split("-")[1].split(".")[0] + "_data.csv"
         return "/".join([file_path, file_name])
 
-    @staticmethod
-    def get_response(input_url):
-        # Make an api call
+    def get_response(self, input_url, first_try=True):
+        # Make an api call and handle HTTP errors
         try:
             r = requests.request("GET", input_url.strip())
-
-            # If status code is 429, sleep for 2 seconds and try again
-            while r.status_code == 429:
-                sleep(2)
-                r = requests.request("GET", input_url.strip())
-
-            # If error arises, return error code
-            if r.status_code != 200:
-                return "Error: status code {}".format(r.status_code)
-
+            r.raise_for_status()
             return r
-        except requests.exceptions.ConnectionError as e:
-            print "Failed to establish connection. This normally occurs when there is an error in the input url."
-            print "Official error message will print below...\n"
-            print e
-            exit(2)
+        except requests.exceptions.HTTPError as err:
+            return "HTTP Error: {}".format(err.response.status_code)
+        except requests.exceptions.ConnectionError as err:
+            if first_try:
+                sleep(5)
+                self.get_response(input_url, first_try=False)
+            else:
+                return "Connection Error: {}".format(err.response.status_code)
 
     def get_petition_id(self, petition_url):
         # Make api call for petition id
@@ -94,15 +97,12 @@ class GetData(object):
                                                                 self.api_key)
         response = self.get_response(id_url)
 
-        # Extract petition id from json response
-        if (type(response) == str) and (response.startswith("Error")):
-            print response
-            exit(2)
-        else:
+        try:
             id_json = json.loads(response.text)
             petition_id = id_json["petition_id"]
-
             return petition_id
+        except AttributeError:
+            return response
 
     def reasons_updates(self, petition_id, data="reasons"):
         # Check to make sure data flag is valid
@@ -114,32 +114,46 @@ class GetData(object):
         # Initialize array to store reasons/updates
         arr = []
 
-        # Define initial url for api call for list of reasons/updates
+        # Define initial API endpoint url for list of reasons/updates
         data_url = ("https://api.change.org/v1/petitions/{0}"
                     "/{1}?page_size=100&sort=time_asc&api_key={2}").format(petition_id,
                                                                            data,
                                                                            self.api_key)
 
-        # Continue filling arr until next_page_endpoint is None
-        while data_url:
-            # Make api call
-            response = self.get_response(data_url)
+        # Make initial API call
+        response = self.get_response(data_url)
 
-            # Extract reasons from json response and reset data_url
-            if (type(response) == str) and (response.startswith("Error")):
-                print response
-                exit(2)
-            else:
-                data_json = json.loads(response.text)
-                arr.extend(data_json[data])
-                data_url = data_json["next_page_endpoint"]
-                if data_url:
-                    data_url += "&sort=time_desc&api_key={0}".format(self.api_key)
+        # Start data collection
+        try:
+            # Get first batch of data
+            data_json = json.loads(response.text)
+            arr.extend(data_json[data])
 
-        # Convert full reasons array into single json object
-        data_json = json.dumps(arr)
+            # Get total_pages value
+            total_pages = int(data_json["total_pages"])
 
-        return data_json
+            # Make additional calls to collect data from remaining pages if they exist
+            if total_pages > 1:
+                for page in range(2, total_pages+1, 1):
+                    # Form next API endpoint url
+                    next_url = data_url + "&page={}".format(page)
+
+                    # Make next call
+                    response = self.get_response(next_url)
+
+                    # Collect data
+                    try:
+                        data_json = json.loads(response.text)
+                        arr.extend(data_json[data])
+                    except AttributeError:
+                        continue
+
+            # Convert full reasons array into single json object
+            data_json = json.dumps(arr)
+
+            return data_json
+        except AttributeError:
+            return response
 
     def petitions(self, petition_id):
         # Specify fields to collect from petition data
@@ -167,14 +181,11 @@ class GetData(object):
         # Make api call
         response = self.get_response(data_url)
 
-        # Extract reasons from json response and reset data_url
-        if (type(response) == str) and (response.startswith("Error")):
-            print response
-            exit(2)
-        else:
+        try:
             data_json = json.loads(response.text)
-
             return data_json
+        except AttributeError:
+            return response
 
 
 def main():
@@ -186,26 +197,29 @@ def main():
     # Loop over urls
     for cnt, url in enumerate(get_data.url_list):
         # Get petition id
-        print "Getting id..."
         _id = get_data.get_petition_id(url)
-        print _id
 
-        # Get reasons for signing petition
-        print "Getting reasons..."
-        reasons = get_data.reasons_updates(_id, data="reasons")
+        if isinstance(_id, int):
+            # Get reasons for signing petition
+            reasons = get_data.reasons_updates(_id, data="reasons")
 
-        # Get updates for petition
-        print "Getting updates..."
-        updates = get_data.reasons_updates(_id, data="updates")
+            # Get updates for petition
+            updates = get_data.reasons_updates(_id, data="updates")
 
-        # Get petition data
-        print "Getting data..."
-        data = get_data.petitions(_id)
+            # Get petition data
+            data = get_data.petitions(_id)
 
-        df.loc[cnt] = [str(_id), reasons, updates, data]
+            if is_json(reasons) and is_json(updates):
+                # Organize all data into instance and add to data frame
+                df.loc[cnt] = [str(_id), reasons, updates, data]
+                print "Done with {}".format(_id)
 
-        if (cnt+1) % 50 == 0:
-            df.to_csv(get_data.output_filename(), index=False)
+                if (cnt + 1) % 25 == 0:
+                    df.to_csv(get_data.output_filename(), index=False)
+            else:
+                continue
+        else:
+            continue
 
     df.to_csv(get_data.output_filename(), index=False)
 
